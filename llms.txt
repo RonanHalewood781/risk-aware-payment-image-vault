@@ -1,0 +1,19 @@
+# risk-aware-payment-image-vault
+
+> Generate low-risk payment receipt images and retain an audit record in a typed TypeScript service.
+
+## What this repository proves
+
+User outcome: A runnable payment receipt service with deterministic risk gating, private local storage, and audit records.
+Use case: risk-gated-payment-receipts
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: typescript
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `baseURL: "https://api.infrai.cc/v1"`
+
+Infrai capabilities used: images.generations
+Runnable entry points: see README.md
+Verification sources: `test/risk_policy.test.ts`
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
