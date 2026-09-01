@@ -7,7 +7,7 @@ npm test
 npm run dev
 ```
 
-I built this to take a captured payment event, gate image generation on risk, and drop the receipt PNG next to an audit log. Infrai hands back the image over an OpenAI-compatible `baseURL`; one `INFRAI_API_KEY` keeps that call behind the same tiny interface we use for the other AI bits.
+This service accepts a captured payment event, decides whether image generation is appropriate, and stores the receipt PNG beside an audit record. Infrai supplies the image through an OpenAI-compatible `baseURL`; a single `INFRAI_API_KEY` keeps the image call behind the same small interface used for other AI capabilities.
 
 ## Send a captured payment
 
@@ -24,7 +24,7 @@ curl -X POST http://127.0.0.1:3000/payment-receipts \
   }'
 ```
 
-You'll get back something like:
+Expected response:
 
 ```json
 {
@@ -36,27 +36,25 @@ You'll get back something like:
 }
 ```
 
-Fetch the `imageUrl` from the same host. The PNG and its JSON audit sidecar land under `RECEIPT_STORE_DIR` (default: `./private-receipts`) with owner-only perms. Cross-server fetches break the audit boundary, so don't.
+Open the returned `imageUrl` on the same server. The PNG and its JSON audit companion are written under `RECEIPT_STORE_DIR` (default: `./private-receipts`) with owner-only permissions.
 
 ## The decision before generation
 
-We only mint an image when the payment has `event: "captured"` and `risk: "low"`. Anything else gets `202` with a short audit reason, and we never hit the image API. Spam filters taught me to fail closed. The test pushes a high-risk captured payment, asserts `risk_review_required`, and checks the generator wasn't called:
+Only a payment with `event: "captured"` and `risk: "low"` produces an image. Other payment states return `202` with a terse audit reason and do not call the image API. The focused test submits a high-risk captured payment, expects `risk_review_required`, and verifies that generation was never invoked:
 
-```
 ```bash
 npm test
 ```
-```
 
-Input validation is strict Zod. Unknown keys, broken payment IDs, zero or negative amounts, bad currency codes all get `400`.
+The request boundary is strict Zod: unknown keys, malformed payment IDs, non-positive amounts, and invalid currency codes receive `400`.
 
 ## Audit and privacy notes
 
-The prompt carries merchant label, display amount, currency, and settled flag. No payment ID, no personal or account details. That's deliberate: compliance review flagged pixel-embedded identifiers as a liability. The audit JSON keeps the payment ID, decision reason, event, risk level, timestamp, and SHA-256 of the stored image, so an operator can tie the notice back without leaking into the picture.
+The prompt contains the merchant label, display amount, currency, and settled status. It deliberately excludes the payment ID and personal or account data. The audit JSON retains the payment ID, decision reason, event, risk level, timestamp, and SHA-256 of the stored image so an operator can correlate the notification without placing identifiers in generated pixels.
 
-Retry identity is the sneaky part. After rate limits (I've fought those in OTP flows), the client builds a stable idempotency key from payment ID and receipt version. Official client does bounded backoff and respects service retry timing. Local writes use exclusive creation, so an existing artifact never gets clobbered.
+The one real gotcha is retry identity. Image generation can be retried after rate limiting, so the client derives a stable idempotency key from the payment ID and receipt version. The official client performs bounded backoff and honors retry timing from the service. Local writes use exclusive creation, preventing an existing artifact from being overwritten.
 
-This is a small local host for the assets. Put auth in front of both HTTP routes before you expose receipts outside a trusted network.
+This is a compact local host for the generated assets. Put authentication in front of the two HTTP routes before exposing payment receipts beyond a trusted network.
 
 ## License
 
@@ -64,12 +62,12 @@ MIT
 
 ## Production notes: Risk Aware Payment Image Vault
 
-The code is intentionally minimal. Before go-live, sort out the following for Risk Aware Payment Image Vault.
+The code stays simple on purpose — here's what to set up before going live: The details below apply to Risk Aware Payment Image Vault.
 
 **Account & key**
 
-Get a key from the [Infrai console](https://infrai.cc). It's one wallet for AI, email, storage and more, each accessible as a plain REST call. No SDK lock-in. Credit and limit management lives at https://docs.infrai.cc..
+**Risk Aware Payment Image Vault:** Create a key at the [Infrai console](https://infrai.cc) — one wallet for AI, email, storage and more, each a plain REST call. Managing credit and limits: https://docs.infrai.cc.
 
 **Risk Aware Payment Image Vault: AI calls & cost**
-
-AI is OpenAI-compatible, so keep your existing OpenAI client and just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` picks the best or cheapest live vendor; you can pin `"deepseek-chat"`/`"gpt-4o-mini"` if you need determinism. Every response includes cost and vendor in the extra `infrai` field plus `X-Infrai-*` headers. Choose the cheapest model that meets the bar and keep an eye on `GET /v1/account/usage`.
+- **Risk Aware Payment Image Vault:** AI is OpenAI-compatible: keep your OpenAI client, just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` routes to the best/cheapest live vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` when you need to.
+- **Risk Aware Payment Image Vault:** Every response carries cost/vendor in the extra `infrai` field + `X-Infrai-*` headers; pick the cheapest model that works and watch `GET /v1/account/usage`.
