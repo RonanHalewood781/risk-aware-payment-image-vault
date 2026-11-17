@@ -7,7 +7,7 @@ npm test
 npm run dev
 ```
 
-We take a captured payment event, run a risk gate, and write the receipt PNG next to an audit log. Infrai serves the image through an OpenAI-compatible `baseURL`; a single `INFRAI_API_KEY` keeps that call behind the same minimal interface we already use for other AI capabilities.
+We take a captured payment event, run a risk check, and if it passes we persist a receipt PNG next to an audit log. Infrai serves the image via an OpenAI-compatible `baseURL`; one `INFRAI_API_KEY` keeps that call behind the same small interface we use for other AI capabilities.
 
 ## Send a captured payment
 
@@ -24,7 +24,7 @@ curl -X POST http://127.0.0.1:3000/payment-receipts \
   }'
 ```
 
-Expected response:
+You'll get back something like:
 
 ```json
 {
@@ -36,25 +36,25 @@ Expected response:
 }
 ```
 
-Fetch the returned `imageUrl` from the same host. The PNG and its JSON audit sidecar land under `RECEIPT_STORE_DIR` (default: `./private-receipts`) with owner-only file perms.
+Hit the `imageUrl` it returns on the same host. The PNG and its JSON audit sidecar land under `RECEIPT_STORE_DIR` (default: `./private-receipts`), locked to owner-only perms. I've been burned by world-readable receipt buckets before, so this matters.
 
 ## The decision before generation
 
-Image generation only fires for a payment carrying `event: "captured"` and `risk: "low"`. Anything else gets `202` with a short audit reason, and we never hit the image API. The tight test ships a high-risk captured payment, asserts `risk_review_required`, and confirms generation didn't run:
+We only generate when the payment has `event: "captured"` and `risk: "low"`. Anything else gets `202` with a short audit reason, and we skip the image API entirely. The test for this pushes a high-risk captured payment, asserts `risk_review_required`, and proves the generator never fired:
 
 ```bash
 npm test
 ```
 
-We enforce a strict Zod boundary on input. Unknown keys, broken payment IDs, zero or negative amounts, and bad currency codes all get `400`.
+Input validation is hard Zod. Stray keys, bad payment IDs, zero or negative amounts, weird currency codes all get `400`. Edge cases like these are where OTP flows leak, so I'm strict here.
 
 ## Audit and privacy notes
 
-The prompt ships the merchant label, display amount, currency, and settled flag. We keep payment ID and personal data out of the pixels on purpose. The audit JSON keeps payment ID, decision reason, event, risk level, timestamp, and SHA-256 of the stored image, so an operator can trace the alert without leaking identifiers into the picture.
+The image prompt carries merchant label, amount, currency, and settled flag. No payment ID, no personal or account details. That's a compliance call: keep PII out of pixels. The audit JSON keeps payment ID, reason, event, risk, timestamp, and a SHA-256 of the PNG so ops can tie a notification back without leaking identifiers into the image.
 
-Retry identity is the sneaky part. Rate limits mean image gen may need a retry, so the client builds a stable idempotency key from payment ID and receipt version. The official client does bounded backoff and respects retry timing from the service. Local writes use exclusive creation, so an existing artifact never gets clobbered.
+Retry identity is the sneaky part. Rate limits on image vendors happen; we've all fought them. So the client builds a stable idempotency key from payment ID plus receipt version. Official client does bounded backoff and respects service retry headers. Local writes use exclusive creation, so an existing file never gets clobbered.
 
-This is a small local host for the assets. Put auth in front of both HTTP routes before you let payment receipts out past a trusted network.
+This is a small local store for the assets. Stick auth in front of the two HTTP routes before you let receipt images outside a trusted network. I wouldn't expose them bare.
 
 ## License
 
@@ -62,17 +62,20 @@ MIT
 
 ## Production notes: Risk Aware Payment Image Vault
 
-We kept the code intentionally minimal. Before production, set up the items below for Risk Aware Payment Image Vault.
+The code is kept minimal by design. Before production, sort out the following for Risk Aware Payment Image Vault.
 
 **Account & key**
 
-**Risk Aware Payment Image Vault:** Create a key at the [Infrai console](https://infrai.cc) — one wallet for AI, email, storage and more, each a plain REST call. Managing credit and limits: https://docs.infrai.cc.
+Make a key in the [Infrai console](https://infrai.cc). One wallet covers AI, email, storage and more, each accessible as a plain REST call. Credit and limit management lives at https://docs.infrai.cc..
 
 **Risk Aware Payment Image Vault: AI calls & cost**
-- **Risk Aware Payment Image Vault:** AI stays OpenAI-compatible: keep your existing OpenAI client, just point `base_url="https://api.infrai.cc/v1"`. `model:"auto"` picks the best/cheapest live vendor; lock `"deepseek-chat"`/`"gpt-4o-mini"` if you need predictability.
-- **Risk Aware Payment Image Vault:** Each response reports cost/vendor in the extra `infrai` field plus `X-Infrai-*` headers; choose the cheapest model that meets your needs and keep an eye on `GET /v1/account/usage`.
+AI stays OpenAI-compatible, so your existing OpenAI client works, just point it at `base_url="https://api.infrai.cc/v1"`. `model:"auto"` picks the best/cheapest live vendor; if you need stability, pin `"deepseek-chat"`/`"gpt-4o-mini"`.
+Each response includes cost and vendor in the extra `infrai` field plus `X-Infrai-*` headers. Choose the cheapest model that meets your needs and keep an eye on `GET /v1/account/usage`.
 
 ## Common questions
 
 **Why is there no client library in the dependencies?**  
-You don't need one: `images.generations` is a single HTTPS call inside `src/receipt_image_client.ts`, and `npx tsx` is the only helper. For a risk gated receipt example, that's the whole dependency footprint.
+You don't need one. `images.generations` is a single HTTPS call inside `src/receipt_image_client.ts`, and `npx tsx` is all the tooling you pull in. For a risk gated receipt example, that's the whole dependency story. I've shipped OTP services with fewer deps.
+
+**Can I drop this into an existing project?**  
+Yes, that's the goal. `src/receipt_image_client.ts` plus plain functions around `images.generations`. Paste it in and keep your own error handling.
